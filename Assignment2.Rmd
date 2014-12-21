@@ -1,0 +1,122 @@
+---
+title: "US Storm Impact Analysis"
+author: "Darcy Lewis
+date: "Saturday, December 13, 2014"
+output: html_document
+---
+Synopsis: 
+The following analysis is intended to identify and convey the types of Storm Events (tornados, floods, hail, etc) have been most harmful with respect to population health and also to property damage in the US for the period of time from 1950 thru 1972.  Data was sourced from U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database and found here: https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2.  Documentation for the Storm Data dataset can be found here: <https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf>.  
+
+Results:
+
+1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+
+2. Across the United States, which types of events have the greatest economic consequences?
+
+
+
+##Setup R environment
+```{r}
+setwd("C:/Users/Darcy/Documents/Coursera/Reporducible Research/Peer Assessment 2")
+library("plyr")
+library(plan)
+library(reshape)
+```
+##Data Processing
+Download compressed file containing Storm Data from the internet, unzip the file and load data into R.  Strip leading and trailing white space in the data as it is read into R.
+```{r}
+    url<-"https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+    download.file(url, destfile = "FStormData.csv.bz2", mode="wb") 
+    ## unzip("FStormData.csv.bz2")
+    FStormData <- read.csv("FStormData.csv",strip.white=TRUE)
+```
+Clean up the event types as much as possible so that lower/upper case and white space are removed to enable better matching of the event names.    
+```{r}
+    FStormData$EVTYPE<-tolower(trim.whitespace(FStormData$EVTYPE))
+```
+
+##Storm events most harmful to population health
+To answer the question regarding types of storm events found most harmful to population health, we will include measurements from both number of fatalities as well as number of injuries by event type(e.g. Tornado, Hail, Thunderstorm, etc).  
+
+Begin transform of storm data related to population health to allow charting for comparison of event types.  
+Summarize by event type the counts of fatalities and also injuries.
+```{r}
+    HumanHarmful<-ddply(FStormData,'EVTYPE', function(x) c(fatalities=sum(x$FATALITIES),injuries=sum(x$INJURIES)))
+```
+Keep only those events where there were fatalities or injuries recorded.
+```{r}
+    HumanHarmful<-subset(HumanHarmful,fatalities+injuries>0)
+```
+Transform the data to support display for a stacked bar chart showing top 5 event types, by total injuries and fatalities.   
+```{r}
+    HumanHarmfulTTl<-HumanHarmful$fatalities+HumanHarmful$injuries   
+    HumanHarmful<-cbind(HumanHarmful,HumanHarmfulTTl)
+    HumanHarmful<-HumanHarmful[order(HumanHarmful$HumanHarmfulTTl,decreasing=TRUE), ]
+    Top5Human<-head(HumanHarmful,5)
+    drops <- c("HumanHarmfulTTl")
+    Top5Human<-Top5Human[,!(names(Top5Human) %in% drops)]
+    Top5Human.T <- t(Top5Human)
+    colnames(Top5Human.T) <- Top5Human$EVTYPE
+    Top5Human.T <- Top5Human.T[2:nrow(Top5Human.T), ]
+```
+###Results: Historical population health damange by Storm Event type
+Tornados, far and away, appear to casuse the most harm to human health. 
+```{r}
+    barplot(Top5Human.T, main="Top 5 Storm events",
+        xlab="Event", col=c("darkblue","red"),
+        legend = rownames(Top5Human.T),cex.names = 0.5) 
+```
+##Storm events causing most economic damage
+To answer the question about storm types doing the most economic damage, simliar type of data transformed will be perfomed as above but now using the property and crop damage estimates.  
+
+Begin transformation and subset of the data to support a stacked bar chart displaying the top 5 most impactful property and crops storm types.
+```{r}
+    EconomicImpact<-subset(FStormData,PROPDMG+CROPDMG>0,select = c(EVTYPE, PROPDMG,CROPDMG,PROPDMGEXP, CROPDMGEXP))
+```
+Recorded data is noted with various multipliers to understand true dollar value impact.  Translate recorded values into dollars before attempting to identify top or to chart the data.
+```{r}
+    EconomicImpact$PROPDMGEXP<-tolower(EconomicImpact$PROPDMGEXP)
+    EconomicImpact$CROPDMGEXP<-tolower(EconomicImpact$CROPDMGEXP)
+    multi<-data.frame(abbv=c('h','k','m','b'),multiplier=c(100,1000,1000000,1000000000))
+    for (i in 1:nrow(EconomicImpact))
+    {
+          if (EconomicImpact[i,"PROPDMGEXP"] %in% multi$abbv)
+          {
+              EconomicImpact[i,"PROPDMG"]<-EconomicImpact[i,"PROPDMG"]*multi[multi$abbv==EconomicImpact[i,"PROPDMGEXP"],"multiplier"]
+          }
+    }   
+    for (i in 1:nrow(EconomicImpact))
+    {
+          if (EconomicImpact[i,"CROPDMGEXP"] %in% multi$abbv)
+          {
+              EconomicImpact[i,"CROPDMG"]<-EconomicImpact[i,"CROPDMG"]*multi[multi$abbv==EconomicImpact[i,"CROPDMGEXP"],"multiplier"]
+          }
+    } 
+```
+Summarize that data by storm event type.
+```{r}
+    ChartingData<-ddply(EconomicImpact,'EVTYPE', function(x) c(property=sum(x$PROPDMG),crop=sum(x$CROPDMG)))
+    ChartingData<-subset(ChartingData,property+crop>0)
+```
+
+Transform the data to support display for a stacked bar chart showing top 5 event types, by total property and crop damage in USD. 
+```{r}
+    PropDamageTtl<-ChartingData$property+ChartingData$crop 
+    ChartingData<-cbind(ChartingData,PropDamageTtl)
+    ChartingData<-ChartingData[order(ChartingData$PropDamageTtl,decreasing=TRUE), ]
+    Top5Property<-head(ChartingData,5)
+    drops <- c("PropDamageTtl")
+    Top5Property<-Top5Property[,!(names(Top5Property) %in% drops)]
+    Top5Property.T <- t(Top5Property)
+    colnames(Top5Property.T) <- Top5Property$EVTYPE
+    Top5Property.T <- Top5Property.T[2:nrow(Top5Property.T), ]
+```
+###Results: Historical economic damage (property and crop) by Storm Event type.
+Appears that with respect to property and crop damage, historically floods have, by far, caused the greatest economic impact.
+
+```{r}
+    barplot(Top5Property.T, main="Top 5 Storm events",
+        xlab="Event", ylab="Dollars",col=c("darkblue","red"),
+        legend = rownames(Top5Property.T),cex.names = 0.5) 
+
+```
